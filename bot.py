@@ -3,19 +3,15 @@ import json
 import logging
 from pathlib import Path
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Updater,
+    Application,
     CommandHandler,
     MessageHandler,
     ConversationHandler,
     CallbackQueryHandler,
-    Filters,
-    CallbackContext,
+    ContextTypes,
+    filters,
 )
 
 logging.basicConfig(
@@ -161,36 +157,36 @@ FIND_GAME    = 20
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def t(key, lang, **kw):
+def t(key: str, lang: str, **kw) -> str:
     text = TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(
         key, TRANSLATIONS["en"].get(key, key)
     )
     return text.format(**kw) if kw else text
 
 
-def load_data():
+def load_data() -> dict:
     if DATA_FILE.exists():
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"users": {}, "lfg_posts": []}
 
 
-def save_data(data):
+def save_data(data: dict) -> None:
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def get_user(user_id):
+def get_user(user_id: int) -> dict | None:
     return load_data()["users"].get(str(user_id))
 
 
-def save_user(user_id, profile):
+def save_user(user_id: int, profile: dict) -> None:
     data = load_data()
     data["users"][str(user_id)] = profile
     save_data(data)
 
 
-def get_lang(user_id, context):
+def get_lang(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> str:
     if context.user_data.get("lang"):
         return context.user_data["lang"]
     user_profile = get_user(user_id)
@@ -199,7 +195,7 @@ def get_lang(user_id, context):
     return "en"
 
 
-def persist_lang(user_id, lang, context):
+def persist_lang(user_id: int, lang: str, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data["lang"] = lang
     data = load_data()
     uid = str(user_id)
@@ -211,36 +207,36 @@ def persist_lang(user_id, lang, context):
 
 # ── /start & /language ────────────────────────────────────────────────────────
 
-def start(update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [[
         InlineKeyboardButton("🇬🇧 English", callback_data="setlang:en"),
         InlineKeyboardButton("🇷🇺 Русский", callback_data="setlang:ru"),
     ]]
-    update.message.reply_text(
+    await update.message.reply_text(
         "🌐 Please select your language / Пожалуйста, выберите язык:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
     return SELECT_LANG
 
 
-def select_lang_callback(update, context):
+async def select_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    query.answer()
+    await query.answer()
     lang = query.data.split(":", 1)[1]
     persist_lang(update.effective_user.id, lang, context)
-    query.edit_message_text(
+    await query.edit_message_text(
         t("welcome", lang, name=update.effective_user.first_name)
     )
     return ConversationHandler.END
 
 
-def language_command(update, context):
+async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang = get_lang(update.effective_user.id, context)
     keyboard = [[
         InlineKeyboardButton("🇬🇧 English", callback_data="setlang:en"),
         InlineKeyboardButton("🇷🇺 Русский", callback_data="setlang:ru"),
     ]]
-    update.message.reply_text(
+    await update.message.reply_text(
         t("lang_prompt", lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -249,12 +245,12 @@ def language_command(update, context):
 
 # ── /profile ──────────────────────────────────────────────────────────────────
 
-def profile(update, context):
-    user_id = update.effective_user.id
-    lang    = get_lang(user_id, context)
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id      = update.effective_user.id
+    lang         = get_lang(user_id, context)
     user_profile = get_user(user_id)
     if not user_profile:
-        update.message.reply_text(t("no_profile", lang))
+        await update.message.reply_text(t("no_profile", lang))
         return
     text = (
         f"{t('your_profile', lang)}\n\n"
@@ -263,26 +259,26 @@ def profile(update, context):
         f"{t('rank_label', lang)}: {user_profile['rank']}\n"
         f"{t('role_label', lang)}: {user_profile['role']}"
     )
-    update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 # ── /register ─────────────────────────────────────────────────────────────────
 
-def register_start(update, context):
+async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang = get_lang(update.effective_user.id, context)
-    update.message.reply_text(t("reg_start", lang))
+    await update.message.reply_text(t("reg_start", lang))
     return REG_NICKNAME
 
 
-def reg_nickname(update, context):
+async def reg_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang     = get_lang(update.effective_user.id, context)
     nickname = update.message.text.strip()
     if not nickname or len(nickname) > 32:
-        update.message.reply_text(t("reg_invalid_nick", lang))
+        await update.message.reply_text(t("reg_invalid_nick", lang))
         return REG_NICKNAME
     context.user_data["reg_nickname"] = nickname
     keyboard = [[InlineKeyboardButton(g, callback_data=f"reg_game:{g}")] for g in GAMES]
-    update.message.reply_text(
+    await update.message.reply_text(
         t("reg_pick_game", lang, nickname=nickname),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown",
@@ -290,39 +286,39 @@ def reg_nickname(update, context):
     return REG_GAME
 
 
-def reg_game(update, context):
+async def reg_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    query.answer()
+    await query.answer()
     lang  = get_lang(update.effective_user.id, context)
     game  = query.data.split(":", 1)[1]
     context.user_data["reg_game"] = game
-    query.edit_message_text(
+    await query.edit_message_text(
         t("reg_pick_rank", lang, game=game),
         parse_mode="Markdown",
     )
     return REG_RANK
 
 
-def reg_rank(update, context):
+async def reg_rank(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang = get_lang(update.effective_user.id, context)
     rank = update.message.text.strip()
     if not rank or len(rank) > 32:
-        update.message.reply_text(t("reg_invalid_rank", lang))
+        await update.message.reply_text(t("reg_invalid_rank", lang))
         return REG_RANK
     context.user_data["reg_rank"] = rank
     game  = context.user_data["reg_game"]
     roles = ROLES.get(game, ["Any"])
     keyboard = [[InlineKeyboardButton(r, callback_data=f"reg_role:{r}")] for r in roles]
-    update.message.reply_text(
+    await update.message.reply_text(
         t("reg_pick_role", lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
     return REG_ROLE
 
 
-def reg_role(update, context):
+async def reg_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query   = update.callback_query
-    query.answer()
+    await query.answer()
     lang    = get_lang(update.effective_user.id, context)
     role    = query.data.split(":", 1)[1]
     user_id = update.effective_user.id
@@ -337,7 +333,7 @@ def reg_role(update, context):
         "lang":       lang,
     }
     save_user(user_id, profile_data)
-    query.edit_message_text(
+    await query.edit_message_text(
         t("reg_saved", lang,
           nickname=profile_data["nickname"],
           game=profile_data["game"],
@@ -351,23 +347,23 @@ def reg_role(update, context):
     return ConversationHandler.END
 
 
-def reg_cancel(update, context):
+async def reg_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang = get_lang(update.effective_user.id, context)
     context.user_data.clear()
-    update.message.reply_text(t("reg_cancelled", lang))
+    await update.message.reply_text(t("reg_cancelled", lang))
     return ConversationHandler.END
 
 
 # ── /lfg ──────────────────────────────────────────────────────────────────────
 
-def lfg_start(update, context):
+async def lfg_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id      = update.effective_user.id
     lang         = get_lang(user_id, context)
     user_profile = get_user(user_id)
     if not user_profile:
-        update.message.reply_text(t("lfg_need_profile", lang))
+        await update.message.reply_text(t("lfg_need_profile", lang))
         return ConversationHandler.END
-    update.message.reply_text(
+    await update.message.reply_text(
         t("lfg_prompt", lang,
           nickname=user_profile["nickname"],
           game=user_profile["game"],
@@ -378,13 +374,13 @@ def lfg_start(update, context):
     return LFG_MESSAGE
 
 
-def lfg_message(update, context):
+async def lfg_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang     = get_lang(update.effective_user.id, context)
     msg_text = update.message.text.strip()
     if msg_text.startswith("/skip"):
         msg_text = ""
     elif len(msg_text) > 200:
-        update.message.reply_text(t("lfg_too_long", lang))
+        await update.message.reply_text(t("lfg_too_long", lang))
         return LFG_MESSAGE
     user_id      = update.effective_user.id
     user_profile = get_user(user_id)
@@ -401,32 +397,32 @@ def lfg_message(update, context):
         "message":    msg_text,
     })
     save_data(data)
-    update.message.reply_text(t("lfg_live", lang))
+    await update.message.reply_text(t("lfg_live", lang))
     return ConversationHandler.END
 
 
-def lfg_cancel(update, context):
+async def lfg_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang = get_lang(update.effective_user.id, context)
-    update.message.reply_text(t("lfg_cancelled", lang))
+    await update.message.reply_text(t("lfg_cancelled", lang))
     return ConversationHandler.END
 
 
 # ── /find ─────────────────────────────────────────────────────────────────────
 
-def find_start(update, context):
+async def find_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang     = get_lang(update.effective_user.id, context)
     keyboard = [[InlineKeyboardButton(g, callback_data=f"find_game:{g}")] for g in GAMES]
     keyboard.append([InlineKeyboardButton(t("find_all", lang), callback_data="find_game:all")])
-    update.message.reply_text(
+    await update.message.reply_text(
         t("find_prompt", lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
     return FIND_GAME
 
 
-def find_game(update, context):
+async def find_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query       = update.callback_query
-    query.answer()
+    await query.answer()
     lang        = get_lang(update.effective_user.id, context)
     game_filter = query.data.split(":", 1)[1]
     user_id     = update.effective_user.id
@@ -445,7 +441,7 @@ def find_game(update, context):
         game_display = game_filter if game_filter != "all" else (
             "any game" if lang == "en" else "любой игры"
         )
-        query.edit_message_text(
+        await query.edit_message_text(
             t("find_no_posts", lang, game=game_display),
             parse_mode="Markdown",
         )
@@ -471,73 +467,75 @@ def find_game(update, context):
     if len(text) > 4000:
         text = text[:3990] + "\n\n" + t("find_truncated", lang)
 
-    query.edit_message_text(text, parse_mode="Markdown")
+    await query.edit_message_text(text, parse_mode="Markdown")
     return ConversationHandler.END
 
 
-def find_cancel(update, context):
+async def find_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang = get_lang(update.effective_user.id, context)
-    update.message.reply_text(t("find_cancelled", lang))
+    await update.message.reply_text(t("find_cancelled", lang))
     return ConversationHandler.END
 
 
 # ── error handler ─────────────────────────────────────────────────────────────
 
-def error_handler(update, context):
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Unhandled error:", exc_info=context.error)
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
+# In python-telegram-bot v20, run_polling() is a synchronous blocking call
+# that manages its own event loop internally. main() must be a plain def,
+# NOT async, and run_polling() must NOT be awaited.
 
-def main():
+def main() -> None:
     token = os.environ.get("BOT_TOKEN")
     if not token:
         raise RuntimeError("BOT_TOKEN environment variable is not set.")
 
-    updater    = Updater(token=token, use_context=True)
-    dispatcher = updater.dispatcher
+    app = Application.builder().token(token).build()
 
     lang_states = {
         SELECT_LANG: [CallbackQueryHandler(select_lang_callback, pattern=r"^setlang:")]
     }
 
-    dispatcher.add_handler(ConversationHandler(
+    app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states=lang_states,
         fallbacks=[],
     ))
 
-    dispatcher.add_handler(ConversationHandler(
+    app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("language", language_command)],
         states=lang_states,
         fallbacks=[],
     ))
 
-    dispatcher.add_handler(CommandHandler("profile", profile))
+    app.add_handler(CommandHandler("profile", profile))
 
-    dispatcher.add_handler(ConversationHandler(
+    app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("register", register_start)],
         states={
-            REG_NICKNAME: [MessageHandler(Filters.text & ~Filters.command, reg_nickname)],
+            REG_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, reg_nickname)],
             REG_GAME:     [CallbackQueryHandler(reg_game, pattern=r"^reg_game:")],
-            REG_RANK:     [MessageHandler(Filters.text & ~Filters.command, reg_rank)],
+            REG_RANK:     [MessageHandler(filters.TEXT & ~filters.COMMAND, reg_rank)],
             REG_ROLE:     [CallbackQueryHandler(reg_role, pattern=r"^reg_role:")],
         },
         fallbacks=[CommandHandler("cancel", reg_cancel)],
     ))
 
-    dispatcher.add_handler(ConversationHandler(
+    app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("lfg", lfg_start)],
         states={
             LFG_MESSAGE: [
-                MessageHandler(Filters.text & ~Filters.command, lfg_message),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, lfg_message),
                 CommandHandler("skip", lfg_message),
             ],
         },
         fallbacks=[CommandHandler("cancel", lfg_cancel)],
     ))
 
-    dispatcher.add_handler(ConversationHandler(
+    app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("find", find_start)],
         states={
             FIND_GAME: [CallbackQueryHandler(find_game, pattern=r"^find_game:")],
@@ -545,11 +543,10 @@ def main():
         fallbacks=[CommandHandler("cancel", find_cancel)],
     ))
 
-    dispatcher.add_error_handler(error_handler)
+    app.add_error_handler(error_handler)
 
     logger.info("Bot is starting…")
-    updater.start_polling(drop_pending_updates=True)
-    updater.idle()
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
